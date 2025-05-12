@@ -24,6 +24,8 @@ export default function AssistantPage() {
   const { speak, isSpeaking, error: synthesisError, browserSupportsSpeechSynthesis } = useSpeechSynthesis();
 
   const lastSpokenTextRef = useRef<string | null>(null);
+  const lastProcessedTranscriptRef = useRef<string | null>(null);
+
 
   const addMessage = useCallback((text: string, sender: ChatMessage['sender']) => {
     setChatMessages(prev => [...prev, { id: Date.now().toString(), text, sender, timestamp: new Date() }]);
@@ -103,12 +105,15 @@ export default function AssistantPage() {
     }
   }, [addMessage, speak, toast, loadSuggestions, browserSupportsSpeechSynthesis]);
 
-  useEffect(() => {
-    if (transcript && !isListening && !isLoadingResponse) {
-       // Check transcript to avoid processing empty or noise
+ useEffect(() => {
+    if (transcript && transcript !== lastProcessedTranscriptRef.current && !isListening && !isLoadingResponse) {
       if (transcript.trim().length > 0) {
+        lastProcessedTranscriptRef.current = transcript; // Mark as processed
         handleProcessCommand(transcript);
       }
+    } else if (!transcript && lastProcessedTranscriptRef.current !== null) { 
+      // Reset if transcript is cleared (e.g., on new listen cycle by startListening)
+      lastProcessedTranscriptRef.current = null;
     }
   }, [transcript, isListening, isLoadingResponse, handleProcessCommand]);
 
@@ -124,6 +129,8 @@ export default function AssistantPage() {
     if (isListening) {
       stopListening();
     } else {
+      // When starting to listen, clear the last processed transcript ref so a new utterance of the same text can be processed
+      lastProcessedTranscriptRef.current = null; 
       startListening();
     }
   };
@@ -133,6 +140,7 @@ export default function AssistantPage() {
       toast({ title: "Offline", description: "You are currently offline. This feature requires an internet connection.", variant: "destructive" });
       return;
     }
+    lastProcessedTranscriptRef.current = suggestion; // Pre-mark as processed for suggestions
     handleProcessCommand(suggestion);
   };
 
