@@ -10,8 +10,7 @@
 
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
-import * as fs from 'fs';
-import * as os from 'os';
+import * as fs from 'fs/promises'; // Changed to fs/promises
 import * as path from 'path';
 
 const UserDataSchema = z.object({
@@ -37,18 +36,29 @@ const personalizedSuggestionsFlow = ai.defineFlow(
     outputSchema: PersonalizedSuggestionsOutputSchema,
   },
   async input => {
-    const userDataPath = path.join(os.cwd(), 'user_data.json');
-
+    const userDataPath = path.join(process.cwd(), 'user_data.json'); // Use process.cwd() for consistency
     let frequentCommands: { [key: string]: number } = {};
 
     try {
-      const fileContent = fs.readFileSync(userDataPath, 'utf-8');
-      const userData: z.infer<typeof UserDataSchema> = JSON.parse(fileContent);
-      frequentCommands = userData.frequent_commands;
-    } catch (error) {
-      console.error('Error reading user_data.json:', error);
-      // If the file doesn't exist or is invalid, start with an empty object.
-      frequentCommands = {};
+      const fileContent = await fs.readFile(userDataPath, 'utf-8'); // Asynchronous read
+      const parsedJson = JSON.parse(fileContent);
+      const userDataValidation = UserDataSchema.safeParse(parsedJson);
+      
+      if (userDataValidation.success) {
+        frequentCommands = userDataValidation.data.frequent_commands;
+      } else {
+        console.error('Invalid user_data.json structure:', userDataValidation.error.flatten());
+        // If structure is invalid, treat as if no data, or handle as appropriate
+        frequentCommands = {};
+      }
+    } catch (error: any) {
+      if (error.code === 'ENOENT') {
+        // console.log('user_data.json not found, starting with empty suggestions.');
+        // This is a normal case if the file hasn't been created yet.
+      } else {
+        console.error('Error reading user_data.json in personalizedSuggestionsFlow:', error);
+      }
+      frequentCommands = {}; // Default to empty if file not found or other read error
     }
 
     // Sort commands by frequency and get the top N.

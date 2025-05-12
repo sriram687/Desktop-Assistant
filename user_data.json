@@ -1,3 +1,5 @@
 {
-  "frequent_commands": {}
+  "frequent_commands": {
+    "hello hello": 11
+  }
 }

@@ -1,12 +1,9 @@
-
 "use server";
 
 import type { CommandResponse } from '@/types';
 import { interpretCommand } from '@/ai/flows/interpret-command';
-import type { SummarizeCommandInput } from '@/ai/flows/summarize-command';
-import { summarizeCommand } from '@/ai/flows/summarize-command';
-import type { PersonalizedSuggestionsInput } from '@/ai/flows/personalized-suggestions';
-import { getPersonalizedSuggestions } from '@/ai/flows/personalized-suggestions';
+import { summarizeCommand, type SummarizeCommandInput } from '@/ai/flows/summarize-command';
+import { getPersonalizedSuggestions, type PersonalizedSuggestionsInput } from '@/ai/flows/personalized-suggestions';
 import fs from 'fs/promises';
 import path from 'path';
 
@@ -17,14 +14,23 @@ async function readUserData(): Promise<{ frequent_commands: Record<string, numbe
   try {
     const data = await fs.readFile(USER_DATA_PATH, 'utf-8');
     return JSON.parse(data);
-  } catch (error) {
+  } catch (error: any) {
     // If file doesn't exist or is invalid, return default structure
+    if (error.code === 'ENOENT') {
+      // console.log('user_data.json not found, returning default.');
+      return { frequent_commands: {} };
+    }
+    console.error("Error reading user_data.json in readUserData:", error);
     return { frequent_commands: {} };
   }
 }
 
 async function writeUserData(data: { frequent_commands: Record<string, number> }): Promise<void> {
-  await fs.writeFile(USER_DATA_PATH, JSON.stringify(data, null, 2), 'utf-8');
+  try {
+    await fs.writeFile(USER_DATA_PATH, JSON.stringify(data, null, 2), 'utf-8');
+  } catch (error) {
+    console.error("Error writing user_data.json in writeUserData:", error);
+  }
 }
 
 export async function updateUserPreferences(command: string): Promise<void> {
@@ -52,19 +58,26 @@ async function getMostFrequentCommand(): Promise<string> {
 
 async function getWeather(city: string): Promise<string> {
   if (!city) return "Please specify a city for the weather.";
-  const url = `https://api.openweathermap.org/data/2.5/weather?q=${city}&appid=${WEATHER_API_KEY}&units=metric`;
+  if (!WEATHER_API_KEY || WEATHER_API_KEY === "YOUR_OPENWEATHERMAP_API_KEY_PLACEHOLDER" || WEATHER_API_KEY.includes("AIzaSyD")) { // Checking for placeholder or incorrect key pattern
+      return "Weather API key is not configured correctly. Please set it in your environment variables.";
+  }
+  const url = `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(city)}&appid=${WEATHER_API_KEY}&units=metric`;
   try {
     const response = await fetch(url);
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({ message: "Unknown error" }));
-      return `Sorry, I couldn't fetch the weather for ${city}. Error: ${errorData.message || response.statusText}`;
+      const errorData = await response.json().catch(() => ({ message: "Unknown error communicating with weather service" }));
+      return `Sorry, I couldn't fetch the weather for ${city}. Server responded with: ${errorData.message || response.statusText}`;
     }
     const res = await response.json();
+    if (res.cod && res.cod !== 200) { // OpenWeatherMap uses 'cod' for status
+        return `Sorry, I couldn't fetch the weather for ${city}. Reason: ${res.message}`;
+    }
     if (res.main && res.weather && res.weather.length > 0) {
       return `The temperature in ${city} is ${res.main.temp}°C with ${res.weather[0].description}.`;
     }
-    return `Sorry, I couldn't get detailed weather information for ${city}.`;
+    return `Sorry, I couldn't get detailed weather information for ${city}. The response was unusual.`;
   } catch (error: any) {
+    console.error("Error fetching weather:", error);
     return `Sorry, an error occurred while fetching weather: ${error.message}`;
   }
 }
@@ -136,7 +149,7 @@ export async function processUserCommand(command: string): Promise<CommandRespon
   
   const weatherMatch = lowerCaseCommand.match(/weather in (.+)/i) || lowerCaseCommand.match(/what's the weather in (.+)/i);
   if (weatherMatch && weatherMatch[1]) {
-    const city = weatherMatch[1];
+    const city = weatherMatch[1].trim();
     const weatherInfo = await getWeather(city);
     return { responseText: weatherInfo, speak: true };
   }
@@ -146,14 +159,14 @@ export async function processUserCommand(command: string): Promise<CommandRespon
 
   const wikipediaSearchMatch = lowerCaseCommand.match(/search wikipedia for (.+)/i) || lowerCaseCommand.match(/wikipedia (.+)/i);
   if (wikipediaSearchMatch && wikipediaSearchMatch[1]) {
-    const query = encodeURIComponent(wikipediaSearchMatch[1]);
-    return { responseText: `Searching Wikipedia for "${wikipediaSearchMatch[1]}".`, speak: true, action: { type: 'open_url', url: `https://en.wikipedia.org/wiki/${query}` } };
+    const query = encodeURIComponent(wikipediaSearchMatch[1].trim());
+    return { responseText: `Searching Wikipedia for "${wikipediaSearchMatch[1].trim()}".`, speak: true, action: { type: 'open_url', url: `https://en.wikipedia.org/wiki/${query}` } };
   }
 
   const googleSearchMatch = lowerCaseCommand.match(/google search (.+)/i) || lowerCaseCommand.match(/search for (.+)/i)  ;
   if (googleSearchMatch && googleSearchMatch[1]) {
-    const query = encodeURIComponent(googleSearchMatch[1]);
-    return { responseText: `Searching Google for "${googleSearchMatch[1]}".`, speak: true, action: { type: 'open_url', url: `https://www.google.com/search?q=${query}` } };
+    const query = encodeURIComponent(googleSearchMatch[1].trim());
+    return { responseText: `Searching Google for "${googleSearchMatch[1].trim()}".`, speak: true, action: { type: 'open_url', url: `https://www.google.com/search?q=${query}` } };
   }
 
 
@@ -174,7 +187,6 @@ export async function fetchPersonalizedSuggestionsList(numSuggestions: number = 
     return suggestions;
   } catch (error) {
     console.error("Error fetching personalized suggestions:", error);
-    return [];
+    return []; // Return empty array on error as per existing behavior
   }
 }
-
