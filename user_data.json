@@ -1,5 +1,7 @@
 {
   "frequent_commands": {
-    "hello hello": 11
+    "hello hello": 11,
+    "hello": 15,
+    "open YouTube": 28
   }
 }
