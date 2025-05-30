@@ -44,7 +44,7 @@ async function getMostFrequentCommand(): Promise<string> {
   const userData = await readUserData();
   const commands = userData.frequent_commands;
   if (Object.keys(commands).length === 0) return "None yet.";
-  
+
   let mostFrequent = "";
   let maxCount = 0;
   for (const cmd in commands) {
@@ -73,7 +73,13 @@ async function getWeather(city: string): Promise<string> {
         return `Sorry, I couldn't fetch the weather for ${city}. Reason: ${res.message}`;
     }
     if (res.main && res.weather && res.weather.length > 0) {
-      return `The temperature in ${city} is ${res.main.temp}°C with ${res.weather[0].description}.`;
+      // Enhanced weather response with more details
+      return `The current weather in ${res.name}:
+• Temperature: ${Math.round(res.main.temp)}°C (feels like ${Math.round(res.main.feels_like)}°C)
+• Conditions: ${res.weather[0].description}
+• Humidity: ${res.main.humidity}%
+• Wind: ${res.wind.speed} m/s
+${res.visibility ? `• Visibility: ${(res.visibility / 1000).toFixed(1)} km` : ''}`;
     }
     return `Sorry, I couldn't get detailed weather information for ${city}. The response was unusual.`;
   } catch (error: any) {
@@ -136,25 +142,116 @@ export async function processUserCommand(command: string): Promise<CommandRespon
     return { responseText: `Your most used command is: ${mostFrequent}`, speak: true };
   }
 
-  const appOpenRegex = /open (notepad|calculator|paint|word|excel|powerpoint|chrome|edge|recycle bin|file explorer|command prompt|task manager)/i;
+  // Enhanced Local app actions with paths
+  const appMap: Record<string, string> = {
+    'notepad': 'C:\\Windows\\System32\\notepad.exe',
+    'calculator': 'C:\\Windows\\System32\\calc.exe',
+    'paint': 'C:\\Windows\\System32\\mspaint.exe',
+    'word': 'C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE',
+    'excel': 'C:\\Program Files\\Microsoft Office\\root\\Office16\\EXCEL.EXE',
+    'powerpoint': 'C:\\Program Files\\Microsoft Office\\root\\Office16\\POWERPNT.EXE',
+    'chrome': 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    'edge': 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+    'firefox': 'C:\\Program Files\\Mozilla Firefox\\firefox.exe',
+    'recycle bin': 'shell:RecycleBinFolder',
+    'file explorer': 'explorer.exe',
+    'command prompt': 'C:\\Windows\\System32\\cmd.exe',
+    'task manager': 'taskmgr.exe',
+    'control panel': 'control.exe',
+    'settings': 'ms-settings:',
+    'photos': 'ms-photos:',
+    'camera': 'microsoft.windows.camera:',
+    'mail': 'outlookmail:',
+    'calendar': 'outlookcal:',
+    'spotify': 'spotify:',
+    'netflix': 'netflix:',
+    'youtube': 'https://www.youtube.com',
+    'google': 'https://www.google.com',
+    'facebook': 'https://www.facebook.com',
+    'twitter': 'https://www.twitter.com',
+    'instagram': 'https://www.instagram.com',
+    'amazon': 'https://www.amazon.com',
+    'maps': 'https://www.google.com/maps',
+    'gmail': 'https://mail.google.com',
+  };
+
+  // Match more app opening patterns
+  const appOpenRegex = /(?:open|launch|start|run|execute) ([\w\s]+)/i;
   const appMatch = lowerCaseCommand.match(appOpenRegex);
+
   if (appMatch && appMatch[1]) {
-    const appName = appMatch[1];
-    return {
-      responseText: `Opening local applications like ${appName} is not supported in this web version. I can open websites for you if you'd like!`,
-      speak: true,
-      action: { type: 'execute_local', command_description: `open ${appName}` }
-    };
+    const requestedApp = appMatch[1].trim().toLowerCase();
+
+    // Find the closest match in our app map
+    let bestMatch = '';
+    let highestScore = 0;
+
+    for (const app in appMap) {
+      // Simple matching algorithm - can be improved
+      if (requestedApp === app) {
+        bestMatch = app;
+        break;
+      } else if (requestedApp.includes(app) || app.includes(requestedApp)) {
+        const score = app.length / requestedApp.length;
+        if (score > highestScore && score <= 1) {
+          highestScore = score;
+          bestMatch = app;
+        }
+      }
+    }
+
+    if (bestMatch) {
+      const appPath = appMap[bestMatch];
+      const isWebApp = appPath.startsWith('http');
+
+      if (isWebApp) {
+        return {
+          responseText: `Opening ${bestMatch} in your browser.`,
+          speak: true,
+          action: { type: 'open_url', url: appPath }
+        };
+      } else {
+        return {
+          responseText: `I'll try to open ${bestMatch} for you. Note that local application access is limited in the web version.`,
+          speak: true,
+          action: {
+            type: 'execute_local',
+            command_description: `open ${bestMatch} (${appPath})`
+          }
+        };
+      }
+    } else {
+      // If no match found, use AI to respond
+      try {
+        const aiResponse = await interpretCommand({ command: `I want to open ${requestedApp}` });
+        return { responseText: aiResponse.interpretedCommand, speak: true };
+      } catch (error) {
+        return {
+          responseText: `I'm not sure how to open "${requestedApp}". Could you try with a more specific application name?`,
+          speak: true
+        };
+      }
+    }
   }
-  
-  const weatherMatch = lowerCaseCommand.match(/weather in (.+)/i) || lowerCaseCommand.match(/what's the weather in (.+)/i);
+
+  // Enhanced Weather handling with more patterns
+  const weatherMatch =
+    lowerCaseCommand.match(/weather (?:in|at|for) (.+)/i) ||
+    lowerCaseCommand.match(/what(?:'s| is) the weather (?:in|at|for) (.+)/i) ||
+    lowerCaseCommand.match(/how(?:'s| is) the weather (?:in|at|for) (.+)/i) ||
+    lowerCaseCommand.match(/temperature (?:in|at|of) (.+)/i) ||
+    lowerCaseCommand.match(/forecast (?:for|in) (.+)/i);
+
   if (weatherMatch && weatherMatch[1]) {
     const city = weatherMatch[1].trim();
     const weatherInfo = await getWeather(city);
     return { responseText: weatherInfo, speak: true };
   }
-  if (lowerCaseCommand.startsWith("weather") && !weatherMatch) {
-    return { responseText: "Sure, which city's weather are you interested in?", speak: true };
+
+  // Generic weather query without location
+  if (/weather|temperature|forecast|rain|snow|sunny|cloudy|humidity|wind/i.test(lowerCaseCommand) &&
+      !lowerCaseCommand.match(/weather (?:in|at|for)|temperature (?:in|at|of)|forecast (?:for|in)/i)) {
+    return { responseText: "I'd be happy to provide weather information. Which city are you interested in?", speak: true };
   }
 
   const wikipediaSearchMatch = lowerCaseCommand.match(/search wikipedia for (.+)/i) || lowerCaseCommand.match(/wikipedia (.+)/i);
